@@ -64,17 +64,6 @@ app.get("/api/vehicles", async (req, res) => {
   }
 });
 
-// ✅ Delete ALL vehicles
-app.delete("/api/vehicles/all", async (req, res) => {
-  try {
-    await pool.query("TRUNCATE TABLE vehicles RESTART IDENTITY CASCADE");
-    res.json({ success: true, message: "All vehicles deleted." });
-  } catch (err) {
-    console.error("❌ Error deleting all vehicles:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ✅ Update vehicle mileage
 app.patch("/api/vehicles/:id", async (req, res) => {
   try {
@@ -94,6 +83,17 @@ app.patch("/api/vehicles/:id", async (req, res) => {
   } catch (err) {
     console.error("❌ Database error (PATCH /api/vehicles/:id):", err);
     res.status(500).json({ error: "Failed to update vehicle" });
+  }
+});
+
+// ✅ Delete ALL vehicles
+app.delete("/api/vehicles/all", async (req, res) => {
+  try {
+    await pool.query("TRUNCATE TABLE vehicles RESTART IDENTITY CASCADE");
+    res.json({ success: true, message: "All vehicles deleted." });
+  } catch (err) {
+    console.error("❌ Error deleting all vehicles:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -164,7 +164,7 @@ app.get("/api/services", async (req, res) => {
   }
 });
 
-// ✅ Delete a single service record
+// ✅ Delete a service record
 app.delete("/api/services/:id", async (req, res) => {
   try {
     const { id } = req.params;
