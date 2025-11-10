@@ -19,7 +19,7 @@ app.use(bodyParser.json());
 
 // ✅ Health check
 app.get("/", (req, res) => {
-  res.json({ message: "🚀 Keep It Cherry backend is running with Postgres!" });
+  res.json({ message: "🚀 Revly backend is running with Postgres!" });
 });
 
 /* ------------------------------------------------------------------
@@ -114,7 +114,7 @@ app.delete("/api/vehicles/:id", async (req, res) => {
    🛠️ SERVICE HISTORY API
 ------------------------------------------------------------------ */
 
-// ✅ Delete ALL service records (safe and cascades)
+// ✅ Delete ALL service records
 app.delete("/api/services/all", async (req, res) => {
   try {
     await pool.query("TRUNCATE TABLE service_history RESTART IDENTITY CASCADE");
@@ -217,6 +217,103 @@ app.get("/api/catalog", async (req, res) => {
   } catch (err) {
     console.error("❌ Catalog query error:", err);
     res.status(500).json({ error: "Failed to fetch vehicle catalog" });
+  }
+});
+
+/* ------------------------------------------------------------------
+   💾 BACKUP & RESTORE ENDPOINTS
+------------------------------------------------------------------ */
+
+// ✅ Export all vehicles + service history as JSON
+app.get("/backup/export", async (req, res) => {
+  try {
+    const vehicles = await pool.query("SELECT * FROM vehicles ORDER BY id ASC");
+    const services = await pool.query("SELECT * FROM service_history ORDER BY id ASC");
+
+    const backup = {
+      exported_at: new Date().toISOString(),
+      vehicles: vehicles.rows,
+      services: services.rows,
+    };
+
+    res.json(backup);
+  } catch (err) {
+    console.error("❌ Backup export failed:", err);
+    res.status(500).json({ error: "Failed to export backup" });
+  }
+});
+
+// ✅ Import backup JSON (vehicles + services)
+app.post("/backup/import", async (req, res) => {
+  try {
+    const { vehicles, services } = req.body;
+    if (!vehicles?.length && !services?.length)
+      return res.status(400).json({ error: "No data provided" });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("TRUNCATE TABLE service_history RESTART IDENTITY CASCADE");
+      await client.query("TRUNCATE TABLE vehicles RESTART IDENTITY CASCADE");
+
+      for (const v of vehicles || []) {
+        await client.query(
+          `INSERT INTO vehicles (year, make, model, mileage)
+           VALUES ($1,$2,$3,$4)`,
+          [v.year, v.make, v.model, v.mileage]
+        );
+      }
+
+      for (const s of services || []) {
+        await client.query(
+          `INSERT INTO service_history (vehicle_id, service_name, mileage, interval, service_date, cost, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [s.vehicle_id, s.service_name, s.mileage, s.interval, s.service_date, s.cost, s.notes]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("❌ Backup import failed:", err);
+    res.status(500).json({ error: "Failed to import backup" });
+  }
+});
+
+// ✅ Export all services as CSV
+app.get("/backup/services-csv", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT v.year, v.make, v.model,
+              s.service_name, s.mileage, s.service_date, s.cost, s.notes
+       FROM service_history s
+       JOIN vehicles v ON s.vehicle_id = v.id
+       ORDER BY s.service_date DESC`
+    );
+
+    if (!result.rows.length)
+      return res.status(404).send("No service data available");
+
+    const headers = Object.keys(result.rows[0]);
+    const csv = [
+      headers.join(","),
+      ...result.rows.map((r) =>
+        headers.map((h) => JSON.stringify(r[h] ?? "")).join(",")
+      ),
+    ].join("\n");
+
+    res.header("Content-Type", "text/csv");
+    res.attachment("keep_it_cherry_services.csv");
+    res.send(csv);
+  } catch (err) {
+    console.error("❌ CSV export failed:", err);
+    res.status(500).json({ error: "Failed to export CSV" });
   }
 });
 
